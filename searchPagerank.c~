@@ -1,0 +1,543 @@
+//COMP 2521 ASS2
+// searchPagerank.c
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+#include <assert.h>
+#include <math.h>
+#include <stdbool.h>
+
+
+
+#include "graph.h"
+#include "queue.h"
+#include "set.h"
+#include "searchPagerank.h"
+
+#define _POSIX_C_SOURCE 200809L 
+
+
+void searchPagerank (char **words, int numWords);
+int numberOfURLs (char* pageRankListFile);
+char **findMatchedURLs (char *indexFile, char **words, int nURLs, int numWords);
+char *normaliseWord (char *str);
+char ** getWord (char *truncdStr, char **list);
+
+
+double *findPageRank(char *PageRankFile, char **tmp, int nURLs);
+
+Tree sortList (Tree t, char **list, double *toPrint);
+
+/*
+int main (int argc, char *argv[]) {
+    
+    if (argc == 1) return 0;
+
+    int numWords = argc - 1;
+
+    char **tmp = malloc(sizeof(char *) * numWords);
+
+    for (int i = 1; i < argc; i++) {
+        tmp[i-1] = strdup(argv[i]);
+    }
+
+    searchPagerank(tmp, numWords);
+
+
+    return 0;
+}
+
+*/
+char **findMatchedURLs (char *indexFile, char **words, int nURLs, int numWords) {
+    char BUF[1000];
+    char inFileBUF[1000];
+
+///////////////////////////////////////////////////////////
+// initialise the array into the max possible size;
+// number of URLs * number of words
+    int arraySize = numWords * nURLs;
+    char **list = calloc((size_t)arraySize, sizeof(char *));
+////////////////////////////////////////////////////////////
+    int i = 0;
+    
+    while (i < numWords) {
+        FILE *file = fopen(indexFile, "r");
+        if (file) {
+            while (fscanf(file,"%s", BUF)) {
+
+                if (strcmp(BUF, words[i]) == 0) {
+                    
+                    
+                    
+                    fgets(inFileBUF, 100, file);
+                    //printf("infilebuf = %s\n", inFileBUF);
+                    char *tmp = strtok(inFileBUF, " \n ");
+                    
+                    
+                    while (tmp != NULL) {
+                        //printf("getwording %s\n", tmp);
+                        list = getWord(tmp, list);
+                        //printf("strtok = %s\n", tmp);
+                        tmp = strtok(NULL, " \n ");
+                    
+                    }
+                    
+                    break;
+
+                    
+                }
+                
+
+            }
+
+        }
+        
+        
+        i ++;
+    }
+    
+    for (i = 0; list[i] != 0; i++) {
+       // printf("filename %s\n", indexFile);
+       // printf("\tLIST: %s\n", list[i]);
+    
+    /*    if (isalpha(list[i]) == 0) {
+            list[i] = ;
+        }
+    */    
+    }
+    
+    return list;
+
+}
+
+char ** getWord (char *truncdStr, char **list) {
+    
+    
+    
+    char str[1000];
+    int i = 0;
+    int j = 0;
+    while (list[j] != NULL) {
+        j ++;
+    }
+    list[j] = strdup(truncdStr);
+    return list;
+}
+
+
+
+
+
+
+
+int numberOfURLs (char* pageRankListFile) {
+    char BUF[1000];
+    int count = 0;
+    FILE *listFile = fopen(pageRankListFile, "r");
+    if (listFile) {
+        while (fgets(BUF, 100, listFile)) count ++;
+        fclose(listFile);
+    }
+    return count;
+}
+
+
+
+
+
+
+
+
+
+
+double *findPageRank(char *PageRankFile, char **list, int nURLs) {
+    char BUF[100];
+    char inFileBUF[100];
+///////////////////////////////////
+// get the number of words from the input
+    int i = 0;
+    while (list[i] != NULL) {
+        i ++;
+    }
+    int numWords = i;
+////////////////////////////////////
+
+    int arraySize = numWords * nURLs;
+    double *PR_v= calloc((size_t)arraySize, sizeof(double) );
+    
+    for (int i = 0; list[i] != NULL; i++){
+        FILE *file = fopen(PageRankFile, "r");
+        if (file) {
+
+            while (fscanf(file, "%s", BUF) != EOF) {
+                normaliseWord(BUF);
+
+                if (strcmp(BUF, list[i]) == 0) {
+                    fgets(inFileBUF, 100, file);
+                    normaliseWord(inFileBUF);
+                    char *tmpPtr;
+                    double f1 = strtof(inFileBUF, &tmpPtr);
+                    double f2 = strtof(tmpPtr, NULL);
+
+                    PR_v[i] = f2;
+               
+                }
+            
+            }
+
+        }
+        fclose(file);
+
+    }
+    return PR_v;
+}
+
+
+void searchPagerank (char **words, int numWords) {
+    char BUF[1000];
+    char inFileBUF[1000];
+
+    char *indexFile = "invertedIndex.txt";
+    char *PageRankFile = "pagerankList.txt";
+    
+    int nURLs = numberOfURLs(PageRankFile);
+    
+
+    //printf("xxxxxxxxxxxxxxxxxxxx\n");    
+    char **list = findMatchedURLs(indexFile, words, nURLs, numWords);
+    double *toPrint = findPageRank(PageRankFile, list, nURLs);
+    
+    Tree t = NULL;
+    t = sortList (t, list, toPrint);
+
+    int c = printTree(t);
+    /*
+    Write a simple search engine in file searchPagerank.c 
+    that given search terms (words) as commandline arguments, 
+    finds pages with one or more search terms and outputs (to stdout)
+    top 30 pages in descending order of number of search terms found 
+    and then within each group, descending order of Weighted PageRank.
+    If number of matches are less than 30, output all of them.
+    */
+}
+
+
+
+
+
+
+
+bool existTree (Tree t, char *name) {
+    if (t == NULL) return false;
+    if (strcmp(t->name, name) == 0) return true;
+    bool res1 = existTree(t->right, name);
+    bool res2 = existTree(t->left, name);
+    return res1 || res2;
+}
+
+
+
+
+Tree sortList (Tree t, char **list, double *toPrint) {
+        for (int i = 0; list[i] != 0; i++) {
+            double reps = 0;
+
+
+            if (existTree(t, list[i]) == false) {
+                
+
+                for (int j = 0; list[j] != 0; j++) {
+                    
+                    if (strcmp(list[i], list[j]) == 0) { 
+                        reps ++;
+                        
+                    }
+                }
+                
+                t = insertTree(t, list[i], toPrint[i], reps);
+            }
+        }
+    
+    return t;
+}
+int printTree(Tree t) {
+    if (t == NULL) { 
+        return 0;
+    }
+    
+    int c = 1;
+    
+    if (c > 30) return 0;
+    if (t->left && t->right) c ++;
+
+    c = c + printTree(t->right)  + printTree(t->left); ;
+    printf("%s\n", t->name);
+    return c;
+}
+
+
+
+
+Tree insertTree (Tree t, char *URL, double PR, double reps) {
+    
+    if (t == NULL) {
+        t = malloc(sizeof(struct TreeRep));
+        t->rep = 1;
+        t->name = strdup(URL);
+        //printf("%s\n", t->name);
+        t->rep = reps;
+        t->value = PR;
+        t->left = t->right = NULL;
+        return t;
+    }
+
+    double diff = reps - t->rep;
+
+    if (diff == 0) {
+        diff = PR - t->value;
+        
+
+
+    } else {
+        if (diff < 0) { 
+        t->left = insertTree(t->left, URL, PR, reps);
+        } else if (diff > 0) {
+        t->right = insertTree(t->right, URL, PR, reps);
+       } 
+        return t;
+    }
+
+    
+
+    if (diff == 0) return t;
+
+    else if (diff < 0) { 
+        t->left = insertTree(t->left, URL, PR, reps);
+    } else if (diff > 0) {
+        t->right = insertTree(t->right, URL, PR, reps);
+    } 
+
+    return t;
+}
+
+
+
+
+// Normalise the words passed to the function follwoing the required properties
+// Assime that the string is already 'malloc'-ed and strCpy-ed
+char *normaliseWord (char *str) {
+
+    // if empty string
+    if (strlen(str) == 0) return str;
+
+    // Remove white spaces in left of the string
+    while (isspace(*str)) str ++;
+    
+    // Remove while spaces on the right of the string
+    int c = strlen(str) - 1;
+    while (str[c] == ' ') {
+        str[c] = '\0';
+        c--;
+    }
+     
+    // total length of the string
+    int len = strlen(str) - 1;
+    // if the string ends in special characters
+    if (str[len] == '.' || str[len] == ',' ||
+        str[len] == ';' || str[len] == '?') {
+        str[len] = '\0';
+    }
+
+
+
+    for (int j = 0; str[j] != '\0'; j++) {
+        if (str[j] == ',') {
+            str[j] = ' ';
+        }
+    }
+
+    // change the string to all lowercase
+    int i = 0;
+    while (str[i] != '\0') {
+        str[i] = tolower(str[i]);
+        i ++;
+    }    
+
+    return str;
+}
+
+//////////////////////////////////////////////////////////////////////////////
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// I AM A FUCKING FAILURE
+/*
+char **getURLName(char *PageRankFile) {
+    char BUF[100];
+    FILE *file = fopen(PageRankFile, "r");
+    int urlCount = 0;
+    if (file) {
+        while (fgets(BUF, 100, file)) {
+        urlCount ++;
+        }
+        fclose(file);
+    }
+
+    char **urlNames = malloc(sizeof(char*) * urlCount);
+    int i = 0;
+
+    file = fopen(PageRankFile, "r");
+    if (file) {
+        while (fgets(BUF, 100, file)) {
+            char *tmp = strtok(BUF, ",");
+            int j;
+            for (j = 0; tmp[j] != '\n'; j++) {
+    
+                printf("%d\n", j);
+                urlNames[i][j] = tmp[j];
+    
+            }
+            urlNames[i][j] = '\0';
+            i++;
+        }
+        fclose(file);
+    }
+    return urlNames;
+}
+
+/*
+double *pageRankList (char *PageRankFile) {
+    char BUF[100];
+    FILE *file = fopen(PageRankFile, "r");
+    int urlCount = 0;
+    if (file) {
+        while (fgets(BUF, 100, file)) {
+        urlCount ++;
+        }
+        fclose(file);
+    }
+
+    double *pageRank = malloc(sizeof(double) * urlCount);
+    int i = 0;
+
+
+    file = fopen(PageRankFile, "r");
+    if (file) {
+        while (fgets(BUF, 100, file)) {
+            char *tmp = strtok(BUF, " ");
+            
+            for (int j = 0; tmp[j] != ' ', j++) {
+                continue;
+            }
+
+
+        }
+        fclose(file);
+    }
+    return pageRank;
+
+}
+*/

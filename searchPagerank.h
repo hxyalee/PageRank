@@ -1,0 +1,40 @@
+
+#ifndef searchPageRank_H
+#define searchPageRank_H
+
+#include <stdio.h>
+
+
+
+#define BUFSIZE 1000
+
+
+
+
+struct TreeRep {
+
+
+    int rep;        // Repetitions
+    double value; // PR VALUE
+    char *name;
+    struct TreeRep *right;
+    struct TreeRep *left;
+
+};
+typedef struct TreeRep *Tree;
+
+
+void searchPagerank (char **words, int numWords);
+int numberOfURLs (char* pageRankListFile);
+char **findMatchedURLs (char *indexFile, char **words, int nURLs, int numWords);
+char *normaliseWord (char *str);
+char ** insertWord (char *truncdStr, char **list);
+double *findPageRank(char *PageRankFile, char **tmp, int nURLs);
+Tree sortList (Tree t, char **list, double *pRank);
+void dropTree (Tree t);
+
+Tree insertTree (Tree t, char *URL, double PR, double reps);
+int printTree(Tree t);
+
+
+#endif

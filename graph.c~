@@ -1,0 +1,522 @@
+// Graph.c ... implementation of Graph ADT
+// Written by John Shepherd, May 2013
+#include <assert.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <math.h>
+#include <stdbool.h>
+
+
+#include "graph.h"
+#include "queue.h"
+
+
+#define _POSIX_C_SOURCE 200809L 
+#define TRUE 0
+#define FALSE 1
+
+// graph representation (adjacency matrix)
+typedef struct GraphRep {
+	int nV;		 // #vertices
+	int nE;		 // #edges
+	int **edges; // matrix of weights (0 == no edge)
+
+	char **vertexNames;
+	
+	int *inLinks;
+	double *outLinks;
+
+	double **w_out;
+	double **w_in;
+	double *pageRank;
+
+} GraphRep;
+
+// create an empty graph
+Graph newGraph (int nV)
+{
+	assert (nV > 0);
+
+	GraphRep *new = malloc (sizeof *new);
+	assert (new != NULL);
+	*new = (GraphRep){ .nV = nV, .nE = 0 };
+
+	new->edges = calloc ((size_t) nV, sizeof (int *));
+	assert (new->edges != NULL);
+	for (int v = 0; v < nV; v++) {
+		new->edges[v] = calloc ((size_t) nV, sizeof (int));
+		assert (new->edges[v] != 0);
+	}
+	new->inLinks = calloc((size_t) nV, sizeof(int));
+	new->outLinks = calloc((size_t) nV, sizeof(double));	
+
+	new->w_out = calloc((size_t) nV, sizeof(double*));
+	for (int v = 0; v < nV; v++) {
+		new->w_out[v] = calloc ((size_t) nV, sizeof (double));
+		assert (new->w_out[v] != 0);
+	}
+
+	new->w_in = calloc((size_t) nV, sizeof(double*));
+	for (int v = 0; v < nV; v++) {
+		new->w_in[v] = calloc ((size_t) nV, sizeof (double));
+		assert (new->w_in[v] != 0);
+	}
+
+	new->pageRank = calloc((size_t) nV, sizeof(double*));
+	
+	new->vertexNames = calloc((size_t) nV, sizeof(char*));
+
+	
+	return new;
+}
+
+void insertURLNames (Graph g, char **URLs) {
+	g->vertexNames = URLs;
+	return;
+}
+
+bool isConnected (Graph g, Vertex src, Vertex dest) {
+	if (src < 0 || dest < 0 || src > g->nV || dest > g->nV) return false;
+	if (g->edges[src][dest] != 0) return true;
+	else return false;
+}
+
+int nVertices (Graph g) {
+	return g->nV;
+}
+
+// check validity of Vertex
+int validV (Graph g, Vertex v)
+{
+	return (g != NULL && v >= 0 && v < g->nV);
+}
+
+// make an edge
+static Edge mkEdge (Graph g, Vertex v, Vertex w)
+{
+	assert (g != NULL && validV (g, v) && validV (g, w));
+	Edge new = {v, w}; // struct assignment
+	return new;
+}
+
+// insert an Edge
+// - sets (v,w) and (w,v)
+void insertEdge (Graph g, Vertex v, Vertex w, int wt)
+{
+	assert (g != NULL && validV (g, v) && validV (g, w));
+
+	if (g->edges[v][w] != 0 && g->edges[w][v] != 0)
+		// an edge already exists; do nothing.
+		return;
+
+	g->edges[v][w] = wt;
+	g->nE++;
+}
+
+// remove an Edge
+// - unsets (v,w) and (w,v)
+void removeEdge (Graph g, Vertex v, Vertex w)
+{
+	assert (g != NULL && validV (g, v) && validV (g, w));
+	if (g->edges[v][w] == 0 && g->edges[w][v] == 0)
+		// an edge doesn't exist; do nothing.
+		return;
+
+	g->edges[v][w] = 0;
+	g->nE--;
+}
+
+
+// free memory associated with graph
+void dropGraph (Graph g)
+{
+	assert (g != NULL);
+	for (int v = 0; v < g->nV; v++)
+		free (g->edges[v]);
+	free (g->edges);
+	free (g);
+}
+
+// display graph, using names for vertices
+void showGraph (Graph g, char **names)
+{
+	assert (g != NULL);
+	printf ("#vertices=%d, #edges=%d\n\n", g->nV, g->nE);
+	int v, w;
+	for (v = 0; v < g->nV; v++) {
+		printf ("%d %s\n", v, names[v]);
+		for (w = 0; w < g->nV; w++) {
+			if (g->edges[v][w]) {
+				printf ("\t%s (%d)\n", names[w], g->edges[v][w]);
+			}
+		}
+		printf ("\n");
+	}
+}
+
+// find a path between two vertices using breadth-first traversal
+// only allow edges whose weight is less than "max"
+int findPath (Graph g, Vertex src, Vertex dest, int max, int *path)
+{
+	assert (g != NULL);
+	int max_flight_dist = max;
+
+	// Visited array
+	int *visited = calloc((size_t) g->nV + 1, sizeof(int));
+	int *temp = calloc((size_t) g->nV + 1, sizeof(int));
+	
+	// Init array to -2 for unvisited (take account of -1 and 0 nodes)
+	for (int i = 0; i < g->nV + 1; i++){
+		visited[i] = temp[i] = -2;
+	}
+
+	// Create queue and src join
+	Queue Q = newQueue();
+	QueueJoin(Q, src);
+	
+	// Set src to visited
+	visited[src] = -1;
+
+	// Breadth first Search
+	while (!QueueIsEmpty(Q)){
+		int next = QueueLeave(Q);
+
+		for (int i = 0; i < g->nV; i++){
+			if (g->edges[next][i] != 0 &&
+			g->edges[next][i] < max_flight_dist &&
+			visited[i] == -2) {
+				QueueJoin(Q,i);
+				visited[i] = next;
+			}
+		}
+	}
+
+	// Reconstruction logic
+	int node = -2;
+
+	// Set node to dest (index in arr)
+	for (int i = 0; i < g->nV; i++){
+		if (i == dest){
+			node = i;
+		}
+	}
+
+	// If dest is unrecheable
+	if (visited[node] == -2){
+		dropQueue(Q);
+		free(visited);
+		free(temp);
+
+		return 0;
+	}
+
+	int counter = 0;
+	int found = FALSE;
+
+// Loop through until src is found
+	while(found == FALSE){
+		temp[counter] = node;
+		node = visited[node];
+		if (node == -1){
+			found = TRUE;
+		}
+		counter++;
+	}
+
+	int j = 0;
+
+	// Reverse order of items in temp and store in path
+	for (int i = counter - 1; i >= 0; i--){
+		path[j] = temp[i];
+		j++;
+	}
+
+	dropQueue(Q);
+	free(visited);
+	free(temp);
+
+
+	return counter;
+}
+
+
+
+// Get the number of edges that point
+// towarsd
+int numberOfInlinks(Graph g, Vertex w) {
+	int Inlinks = 0;
+	int N = g->nV;
+	for (int i = 0; i < N; i ++) 
+		if (g->edges[i][w] != 0) Inlinks ++;
+	return Inlinks;
+
+}
+
+
+
+// Get the number of edges that point to the 
+// adjacent nodes in the graph
+int numberOfOutlinks(Graph g, Vertex v) {
+	int outlinks = 0;
+	int N = g->nV;
+	for (int i = 0; i < N; i ++) 
+		if (g->edges[v][i] != 0) outlinks ++;
+	return outlinks;
+}
+
+void setInLinksOutlinks(Graph g) {
+	for(int i = 0; i < g->nV; i ++) g->inLinks[i] = numberOfInlinks(g, i);	
+	for(int i = 0; i < g->nV; i ++) g->outLinks[i] = numberOfOutlinks(g, i);
+	
+	
+	for(int i = 0; i < g->nV; i ++) if (g->outLinks[i] == 0) g->outLinks[i] = 0.5;
+
+
+    printf("\nINLINKS:\n");
+    for(int i = 0; i < g->nV; i ++) printf("[%d] -- %d\n", i, g->inLinks[i]);
+    printf("\n\n"); 
+    printf("OUTLINKS:\n");
+    for(int i = 0; i < g->nV; i ++) printf("[%d] -- %f\n", i, g->outLinks[i]);
+
+}
+
+
+
+
+
+
+double W_out (Graph g, Vertex from, Vertex to) {
+
+	if (g->edges[from][to] == 0) {
+		return -1;
+	}
+    double numerator = g->outLinks[to];
+    double denominator = 0;
+    for (int i = 0; i < g->nV; i ++) {
+		if (g->edges[from][i] != 0) 
+            denominator = denominator + g->outLinks[i];
+    }
+	return numerator/denominator; 
+}
+
+
+double W_in (Graph g, Vertex from, Vertex to) {
+
+	if (g->edges[from][to] == 0) {
+		return -1;
+	}
+    double numerator = g->inLinks[to];
+    double denominator = 0;
+    for (int i = 0; i < g->nV; i ++) {
+		if (g->edges[from][i] != 0) 
+			denominator = denominator + g->inLinks[i];
+	}
+    return numerator/denominator; 
+}
+
+
+void setW_Out (Graph g) {
+	printf("W_OUT:\n");
+	for (int i = 0; i < g->nV; i ++) {
+		for (int j = 0; j < g->nV; j ++) {
+			if (g->edges[i][j] == 0) {
+				g->w_out[i][j] = 0;
+			} else {
+				g->w_out[i][j] = W_out(g, i, j);
+				printf("[%d][%d] --- %.7f\n", i, j, g->w_out[i][j]);
+			}	
+		}
+	}
+}
+
+
+void setW_in (Graph g) {
+	printf("W_IN:\n");
+	for (int i = 0; i < g->nV; i ++) {
+		for (int j = 0; j < g->nV; j ++) {
+			if (g->edges[i][j] == 0) {
+				g->w_in[i][j] = 0;
+			} else {
+				g->w_in[i][j] = W_in(g, i, j);
+				printf("[%d][%d] --- %.7f\n", i, j, g->w_in[i][j]);
+			}	
+		}
+	}
+}
+
+
+
+
+
+
+
+
+
+void calculatePageRank (Graph g, double d, double diffPR, int maxIterations) {
+    
+	printf("... starting calculate pagerank ... \n");
+
+	int N = nVertices(g);
+    double PR_Beg = 1 / N;
+    initialisePageRank(g, PR_Beg);
+
+
+
+    int iteration = 0;
+    double diff = diffPR;
+
+	double *tmp = malloc((size_t) N * sizeof (double));
+	
+    while (iteration < maxIterations && diff >= diffPR) {
+		diff = 0;
+        for (int i = 0; i < N; i ++) {
+            
+            double PR = 0;
+
+            for (int j = 0; j < N; j ++) {
+
+            	if (isConnected(g, j, i)) {
+            		PR = PR + g->pageRank[j] * g->w_out[j][i] * g->w_in[j][i];
+	        	}
+    		}
+    		PR = d * PR;
+        	PR = ((1 - d)/N) + PR;
+        	diff = diff + fabs(PR - g->pageRank[i]);
+			tmp[i] = PR;
+			
+		}
+		for (int i = 0; i < N; i ++) {
+			g->pageRank[i] = tmp[i];
+		}
+
+        iteration ++;
+    }
+//	for (int i = 0; i < N; i ++) {
+//		printf("[%d] -- %.7f\n", i, g->pageRank[i]);
+//	}
+	
+	char *fileName = "pagerankList.txt";
+	makeFileAndList (g, fileName, g->pageRank);
+}
+
+
+
+
+
+void makeFileAndList (Graph g, char *fileName, double *pageRank) {
+	
+	
+	// make a temporary array of pageRank
+	// in order to print them
+	double *tmp = calloc((size_t)g->nV, sizeof(double));
+	for (int i = 0; i < g->nV; i++) {
+		tmp[i] = pageRank[i];
+	}
+
+	
+	// make a text file
+    // and print as required 
+    FILE *output = fopen(fileName, "w");
+    if (output) {
+		int counter = 0;
+		while (counter < g -> nV) {
+			double max = 0;
+			int outLinks = 0;
+			for (int i = 0; i < g-> nV; i++) {
+				if (tmp[i] > max) {
+					max = tmp[i];
+					if (g->outLinks[i] == 0.5) {
+						outLinks = 0;
+					} else {
+						outLinks = g->outLinks[i];
+					}
+				}
+			}
+			char *name;
+			for (int i = 0; i < g-> nV; i++) {
+				if (tmp[i] == max) {
+					name = malloc(sizeof(char) * strlen(vertexNames[i]);
+					name = strdup(g->vertexNames[i]);
+				}
+			}
+
+			for (int i = 0; i < g-> nV; i++) {
+				if (tmp[i] == max) {
+					tmp[i] = 0;
+				}
+			}
+
+			fprintf(output, "%s, %d, %.7f\n", name, outLinks, max);
+
+			counter ++;
+		}		
+
+		fclose(output);
+    }
+
+    return;
+}
+
+
+
+
+
+
+
+
+
+void initialisePageRank (Graph g, double initialiseValue) {
+	for (int i = 0; i < g->nV; i ++) g->pageRank[i] = initialiseValue;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+void printMatrix (Graph g) {
+	for (int i = 0; i < g->nV; i ++) {
+		for (int j = 0; j < g->nV; j ++) {
+			printf("%d\t", g->edges[i][j]);
+		}
+		printf("\n");
+	}
+}
+
+void printWOut (Graph g) {
+	for (int i = 0; i < g->nV; i ++) {
+		for (int j = 0; j < g->nV; j ++) {
+			if (g->edges[i][j] == 0) {
+				continue;
+			} else {
+				printf("[%d][%d] -- %lf\n", i, j, W_out(g, i, j));
+			}	
+		}
+	}
+}
+
+
+
